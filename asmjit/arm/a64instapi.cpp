@@ -97,6 +97,16 @@ static const InstRWInfoData inst_rw_info_table[] = {
 
 static const uint8_t element_type_size_table[8] = { 0, 1, 2, 4, 8, 4, 4, 0 };
 
+static inline void apply_element_access(OpRWInfo& op, const Vec& reg) noexcept {
+  if (reg.has_element_index()) {
+    // Restrict accesses to the selected element, including consecutive lane loads/stores.
+    uint32_t element_size = element_type_size_table[size_t(reg.element_type())];
+    uint64_t access_mask = uint64_t(Support::lsb_mask<uint32_t>(element_size)) << (reg.element_index() * element_size);
+    op._read_byte_mask &= access_mask;
+    op._write_byte_mask &= access_mask;
+  }
+}
+
 Error query_rw_info(const BaseInst& inst, const Operand_* operands, size_t op_count, InstRWInfo* out) noexcept {
   // Get the instruction data.
   uint32_t real_id = inst.inst_id() & uint32_t(InstIdParts::kRealId);
@@ -113,7 +123,12 @@ Error query_rw_info(const BaseInst& inst, const Operand_* operands, size_t op_co
   out->_write_flags = CpuRWFlags::kNone; // TODO: [ARM] Write PSTATUS
 
   const InstDB::InstInfo& inst_info = InstDB::_inst_info_table[real_id];
-  const InstRWInfoData& rw_info = inst_rw_info_table[inst_info.rw_info_index()];
+  uint32_t rw_info_index = inst_info.rw_info_index();
+  if (op_count >= 2 && operands[1].is_imm() && (real_id == Inst::kIdBic_v || real_id == Inst::kIdOrr_v)) {
+    // Immediate BIC/ORR modify their destination; register forms have separate sources.
+    rw_info_index = InstDB::kRWI_X;
+  }
+  const InstRWInfoData& rw_info = inst_rw_info_table[rw_info_index];
 
   if (inst_info.has_flag(InstDB::kInstFlagConsecutive) && op_count > 2) {
     for (uint32_t i = 0; i < op_count; i++) {
@@ -141,6 +156,7 @@ Error query_rw_info(const BaseInst& inst, const Operand_* operands, size_t op_co
       op._consecutive_lead_count = 0;
 
       if (src_op.is_reg()) {
+        apply_element_access(op, src_op.as<Vec>());
         if (i == 0) {
           op._consecutive_lead_count = uint8_t(op_count - 1);
         }
@@ -190,17 +206,7 @@ Error query_rw_info(const BaseInst& inst, const Operand_* operands, size_t op_co
       op._consecutive_lead_count = 0;
 
       if (src_op.is_reg()) {
-        if (src_op.as<Vec>().has_element_index()) {
-          // Only part of the vector is accessed if element index [] is used.
-          VecElementType element_type = src_op.as<Vec>().element_type();
-          uint32_t element_index = src_op.as<Vec>().element_index();
-
-          uint32_t element_size = element_type_size_table[size_t(element_type)];
-          uint64_t access_mask = uint64_t(Support::lsb_mask<uint32_t>(element_size)) << (element_index * element_size);
-
-          op._read_byte_mask &= access_mask;
-          op._write_byte_mask &= access_mask;
-        }
+        apply_element_access(op, src_op.as<Vec>());
 
         // TODO: [ARM] RW info is not finished.
       }

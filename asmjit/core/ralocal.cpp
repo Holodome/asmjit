@@ -972,7 +972,7 @@ Error RALocalAllocator::alloc_instruction(InstNode* node) noexcept {
                   break;
                 }
 
-                score -= uint32_t(axl::bit_test(live_regs, consecutive_index)) << 2;
+                score -= uint32_t(Support::bit_test(live_regs, consecutive_index)) << 2;
                 RAWorkReg* work_reg = consecutive_regs[i]->work_reg();
                 score += uint32_t(work_reg->home_reg_id() == consecutive_index);
               }
@@ -994,7 +994,7 @@ Error RALocalAllocator::alloc_instruction(InstNode* node) noexcept {
 
             // Reserve the whole sequence before allocating other OUT registers.
             tied_reg->set_out_id(consecutive_index);
-            avoid_regs |= axl::bit_mask<RegMask>(consecutive_index);
+            avoid_regs |= Support::bit_mask<RegMask>(consecutive_index);
           }
         }
       }
